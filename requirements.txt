@@ -1,0 +1,8 @@
+numpy
+biopython
+obonet
+pandas
+torch
+torcheval
+tqdm
+nltk
