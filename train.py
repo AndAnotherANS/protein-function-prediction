@@ -1,3 +1,8 @@
+import argparse
+import json
+import logging
+import os
+
 import numpy as np
 import pandas as pd
 import torch
@@ -10,6 +15,10 @@ from transformer_model import Transformer
 from data_utils import TokenEncoder
 from torcheval.metrics.functional import binary_f1_score, binary_precision, binary_recall, binary_accuracy
 from matplotlib import pyplot as plt
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler())
+
 
 class ProteinDataset(Dataset):
     def __init__(self, relations, labels, directory):
@@ -38,10 +47,10 @@ def prepare_positive_negative(positive, max_neg_id):
     return relations, labels
 
 
-def train():
+def train(args):
     directory = "exp1"
-    num_epochs = 5
-    step_size = 2
+    num_epochs = 20
+    step_size = 5
     relations_positive = pd.read_csv(f"./data/{directory}/relations.csv").values[:, 1:]
 
     train_proteins = np.random.choice(relations_positive[:, 0], [200], replace=False)
@@ -60,13 +69,13 @@ def train():
     prot_max_token = len(TokenEncoder().read(f"./data/{directory}/enc_protein").vocab)
     fun_max_token = len(TokenEncoder().read(f"./data/{directory}/enc_function").vocab)
 
-    model_prot = Transformer(prot_max_token, 512, 5).cuda()
-    model_fun = Transformer(fun_max_token, 512, 5).cuda()
+    model_prot = Transformer(prot_max_token, args["embed_size"], args["depth"]).cuda()
+    model_fun = Transformer(fun_max_token, args["embed_size"], args["depth"]).cuda()
 
     classifier = nn.CosineSimilarity(dim=-1)#nn.Sequential(nn.Linear(1024, 1), nn.Sigmoid()).cuda()
 
     optim = torch.optim.Adam([*model_prot.parameters()] + [*model_fun.parameters()] + [*classifier.parameters()],
-                             lr=0.0001)
+                             lr=args["lr"])
     scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=step_size, gamma=0.5)
     best_loss = torch.inf
     loss_history = {"train": [], "val": []}
@@ -80,7 +89,6 @@ def train():
             prot, fun, label = prot.cuda(), fun.cuda(), label.cuda()
             prot_encoding = model_prot(prot)
             fun_encoding = model_fun(fun)
-            #encoding = torch.cat([prot_encoding, fun_encoding], -1)
             pred = (classifier(prot_encoding, fun_encoding).squeeze() + 1.) / 2.
             loss = F.binary_cross_entropy(pred, label.float())
 
@@ -120,7 +128,6 @@ def evaluate(model_prot, model_fun, classifier, dataloader_val):
             prot, fun, label = prot.cuda(), fun.cuda(), label.cuda()
             prot_encoding = model_prot(prot)
             fun_encoding = model_fun(fun)
-            encoding = torch.cat([prot_encoding, fun_encoding], -1)
             pred = (classifier(prot_encoding, fun_encoding).squeeze() + 1.) / 2.
             acc.append(binary_accuracy(pred, label).item())
             f1.append(binary_f1_score(pred, label).item())
@@ -135,4 +142,15 @@ def evaluate(model_prot, model_fun, classifier, dataloader_val):
     return sum(losses) / len(losses)
 
 if __name__ == '__main__':
-    train()
+    args = argparse.ArgumentParser()
+    args.add_argument("--config", default="config/default.json")
+    args = args.parse_args()
+    with open(args.config) as f:
+        config = json.load(f)
+    os.makedirs(f'./data/{config["name"]}/{config["grid_num"]}', exist_ok=True)
+    logger.addHandler(logging.FileHandler(f'./data/{config["name"]}/{config["grid_num"]}/train.log'))
+
+    logger.info(config)
+    train(config)
+
+

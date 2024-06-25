@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import random
@@ -103,6 +104,9 @@ def tokenize_function(function_name_desc):
 
 
 if __name__ == '__main__':
+    args = argparse.ArgumentParser()
+    args.add_argument("--expdir", default="exp1")
+    args = args.parse_args()
     t = time.time()
-    prepare_data("exp1")
-    print(time.time() - t)
+    prepare_data(args.expdir)
+    print(f"Preparation of training data took {time.time() - t}s")
